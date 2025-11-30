@@ -15,10 +15,17 @@ const MAX_INPUT_TOKENS_PER_CALL = 6000;      // safety cap per request
 const MAX_OUTPUT_TOKENS_PER_CALL = 2000;     // increased for large task lists
 const MAX_TOTAL_TOKENS_PER_CALL = 8000;      // input + output hard cap (well within model limit)
 
-// Initialize Groq client
-const groq = new Groq({
+// Check for API key at startup
+if (!process.env.GROQ_API_KEY) {
+  console.error('⚠️  WARNING: GROQ_API_KEY environment variable is not set!');
+  console.error('   The application will not be able to process NLP requests.');
+  console.error('   Please set GROQ_API_KEY in your environment variables or .env file.');
+}
+
+// Initialize Groq client with error handling
+const groq = process.env.GROQ_API_KEY ? new Groq({
   apiKey: process.env.GROQ_API_KEY
-});
+}) : null;
 
 /**
  * TOKEN ESTIMATION
@@ -186,6 +193,11 @@ function cleanJsonResponse(content) {
  * @returns {Promise<Object>} Groq API response
  */
 async function safeGroqCall(systemPrompt, userPrompt) {
+  // Check if Groq client is available
+  if (!groq) {
+    throw new Error('GROQ_API_KEY is not configured. Cannot make API calls.');
+  }
+  
   const messages = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt }
@@ -475,6 +487,16 @@ function mergeIntents(intents, primaryAction) {
 async function parseIntent(userText, context = {}) {
   if (!userText || !userText.trim()) {
     return { action: 'error', message: 'Empty input' };
+  }
+  
+  // Check if Groq client is available
+  if (!groq) {
+    console.error('[Parse Intent] Groq client not initialized - missing API key');
+    return {
+      action: 'error',
+      message: '⚠️ AI service is not configured. Please contact the administrator to set up the GROQ_API_KEY.',
+      error: 'GROQ_API_KEY_MISSING'
+    };
   }
   
   try {
