@@ -1,17 +1,35 @@
 /**
  * Notes Service
  * Notion-lite note management system with context awareness
+ * Uses in-memory storage for serverless environments
  */
 
 const fs = require('fs');
 const path = require('path');
 
 const NOTES_FILE = path.join(__dirname, '..', 'data', 'notes.json');
+const IS_SERVERLESS = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || !process.env.HOME;
+
+// In-memory storage for serverless environments
+let memoryStore = [];
 
 /**
- * Load notes from file
+ * Check if running in serverless environment
+ */
+function isServerless() {
+  return IS_SERVERLESS;
+}
+
+/**
+ * Load notes from file or memory
  */
 function loadNotes() {
+  // Use memory storage in serverless environment
+  if (isServerless()) {
+    return memoryStore;
+  }
+  
+  // Use file storage in local environment
   try {
     if (!fs.existsSync(NOTES_FILE)) {
       const dataDir = path.dirname(NOTES_FILE);
@@ -25,15 +43,22 @@ function loadNotes() {
     const data = fs.readFileSync(NOTES_FILE, 'utf8');
     return JSON.parse(data);
   } catch (error) {
-    console.error('[Notes] Error loading notes:', error);
-    return [];
+    console.error('[Notes] Error loading notes, using memory fallback:', error.message);
+    return memoryStore;
   }
 }
 
 /**
- * Save notes to file
+ * Save notes to file or memory
  */
 function saveNotes(notes) {
+  // Use memory storage in serverless environment
+  if (isServerless()) {
+    memoryStore = notes;
+    return true;
+  }
+  
+  // Use file storage in local environment
   try {
     const dataDir = path.dirname(NOTES_FILE);
     if (!fs.existsSync(dataDir)) {
@@ -43,7 +68,8 @@ function saveNotes(notes) {
     fs.writeFileSync(NOTES_FILE, JSON.stringify(notes, null, 2));
     return true;
   } catch (error) {
-    console.error('[Notes] Error saving notes:', error);
+    console.error('[Notes] Error saving notes, using memory fallback:', error.message);
+    memoryStore = notes;
     return false;
   }
 }
