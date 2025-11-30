@@ -35,6 +35,11 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
+    environment: {
+      isServerless: !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME),
+      hasGroqApiKey: !!process.env.GROQ_API_KEY,
+      groqKeyLength: process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.length : 0
+    },
     tokenLimits: {
       maxInputTokens: 6000,
       maxOutputTokens: 500,

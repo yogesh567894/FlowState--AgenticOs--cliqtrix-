@@ -497,6 +497,12 @@ async function parseIntent(userText, context = {}) {
   }
   
   try {
+    // Check if GROQ_API_KEY is available
+    if (!process.env.GROQ_API_KEY) {
+      console.error('[Parse Intent] GROQ_API_KEY is not set! Using regex fallback.');
+      return regexFallbackParser(userText);
+    }
+    
     // Mode context injection
     const modeContext = context.mode ? `\nCurrent mode is ${context.mode.toUpperCase()}; prefer ${context.mode}-related actions.` : '';
     
@@ -555,7 +561,14 @@ Format:
       return await parseLongInput(userText, context);
     }
   } catch (error) {
-    console.error('[Parse Intent] Error:', error);
+    console.error('[Parse Intent] Error:', error.message);
+    console.error('[Parse Intent] Full error:', error);
+    
+    // If Groq API error, use regex fallback
+    if (error.message && (error.message.includes('GROQ_API_KEY') || error.message.includes('API'))) {
+      console.log('[Parse Intent] Groq API unavailable, using regex fallback');
+      return regexFallbackParser(userText);
+    }
     
     // Friendly error message
     if (error.message && error.message.includes('token')) {
@@ -566,10 +579,9 @@ Format:
       };
     }
     
-    return {
-      action: 'error',
-      message: error.message || 'Failed to parse intent'
-    };
+    // Use regex fallback for any error
+    console.log('[Parse Intent] Error occurred, using regex fallback');
+    return regexFallbackParser(userText);
   }
 }
 
