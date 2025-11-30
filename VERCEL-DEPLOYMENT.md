@@ -1,109 +1,206 @@
 # Vercel Deployment Guide
 
-## Prerequisites
-- Vercel account
-- GROQ API key (get one from https://console.groq.com)
+## 🚀 Quick Deploy Steps
 
-## Environment Variables Required
+### 1. **Install Vercel CLI (Optional)**
+```bash
+npm install -g vercel
+```
 
-You **must** set the following environment variable in Vercel:
+### 2. **Configure Environment Variables in Vercel**
 
-### `GROQ_API_KEY`
-Your Groq API key for NLP processing.
+**IMPORTANT:** You must set the `GROQ_API_KEY` in Vercel before deployment!
 
-## Steps to Deploy
-
-### 1. Connect Repository to Vercel
-1. Go to https://vercel.com/dashboard
-2. Click "Add New" → "Project"
-3. Import your GitHub repository: `FlowState--AgenticOs--cliqtrix-`
-4. Click "Import"
-
-### 2. Configure Environment Variables
-1. In your Vercel project settings, go to "Settings" → "Environment Variables"
-2. Add the following:
+#### Via Vercel Dashboard:
+1. Go to your project: https://vercel.com/dashboard
+2. Select your project (or create new)
+3. Go to **Settings** → **Environment Variables**
+4. Add the following variable:
    - **Name:** `GROQ_API_KEY`
-   - **Value:** Your Groq API key (e.g., `gsk_...`)
-   - **Environments:** Check all (Production, Preview, Development)
-3. Click "Save"
+   - **Value:** Your Groq API key from https://console.groq.com
+   - **Environment:** Production, Preview, Development (select all)
+5. Click **Save**
 
-### 3. Deploy Settings
-Vercel should auto-detect the Node.js settings. Verify:
-- **Framework Preset:** Other (or None)
-- **Build Command:** (leave empty or use `npm install`)
-- **Output Directory:** (leave empty)
-- **Install Command:** `npm install`
-- **Development Command:** `npm run dev`
+#### Via Vercel CLI:
+```bash
+vercel env add GROQ_API_KEY
+# Paste your Groq API key when prompted
+# Select: Production, Preview, Development
+```
 
-### 4. Deploy
-1. Click "Deploy"
-2. Wait for the build to complete
-3. Once deployed, your app will be available at: `https://your-project.vercel.app`
+### 3. **Deploy to Vercel**
 
-## Troubleshooting
+#### Option A: Via GitHub (Recommended)
+1. Push your code to GitHub:
+   ```bash
+   git add .
+   git commit -m "feat: add Vercel deployment config"
+   git push origin main
+   ```
 
-### Error: "GROQ_API_KEY environment variable is missing"
-**Solution:** 
-1. Go to Vercel Dashboard → Your Project → Settings → Environment Variables
-2. Add `GROQ_API_KEY` with your API key
-3. Redeploy the project (Settings → Deployments → Latest Deployment → "..." → Redeploy)
+2. Import your repository in Vercel:
+   - Go to https://vercel.com/new
+   - Import your GitHub repository
+   - Vercel will auto-detect the Node.js project
+   - Click **Deploy**
 
-### Error: "Module not found"
-**Solution:**
-1. Make sure `package.json` is in the root directory
-2. Verify all dependencies are listed in `package.json`
-3. Redeploy
+#### Option B: Via Vercel CLI
+```bash
+vercel --prod
+```
 
-### API Not Working
-**Solution:**
-1. Check Vercel function logs: Dashboard → Your Project → Deployments → View Function Logs
-2. Verify environment variables are set correctly
-3. Test the endpoint: `https://your-project.vercel.app/api/webhook`
+### 4. **Verify Deployment**
 
-## Verification
-
-After deployment, test your webhook:
+After deployment, test your API:
 
 ```bash
 curl -X POST https://your-project.vercel.app/api/webhook \
   -H "Content-Type: application/json" \
+  -d '{"userId":"test","message":"hello"}'
+```
+
+## 📝 Configuration Files
+
+### `vercel.json`
+This file configures how Vercel builds and routes your application:
+
+```json
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "server.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "server.js"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  }
+}
+```
+
+### Environment Variables Required
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `GROQ_API_KEY` | Your Groq API key from console.groq.com | ✅ Yes |
+| `PORT` | Server port (auto-set by Vercel) | ❌ No |
+
+## 🔧 Troubleshooting
+
+### Error: "GROQ_API_KEY environment variable is missing"
+
+**Solution:** 
+1. Go to Vercel Dashboard → Your Project → Settings → Environment Variables
+2. Add `GROQ_API_KEY` with your API key
+3. Redeploy the project (Deployments → Click on latest → Redeploy)
+
+### Error: "Module not found"
+
+**Solution:**
+Ensure all dependencies are in `package.json`:
+```bash
+npm install
+git add package.json package-lock.json
+git commit -m "update dependencies"
+git push
+```
+
+### Build Fails
+
+**Solution:**
+1. Check build logs in Vercel dashboard
+2. Ensure Node.js version compatibility (check `package.json` engines field)
+3. Test locally first: `npm start`
+
+## 🌐 API Endpoints
+
+After deployment, your API will be available at:
+
+```
+https://your-project.vercel.app/api/webhook
+```
+
+### Test Requests
+
+**Create Task:**
+```bash
+curl -X POST https://your-project.vercel.app/api/webhook \
+  -H "Content-Type: application/json" \
   -d '{
-    "userId": "test@example.com",
-    "message": "hello"
+    "userId": "user123",
+    "message": "create a task to review code"
   }'
 ```
 
-You should get a JSON response with `success: true`.
+**List Tasks:**
+```bash
+curl -X POST https://your-project.vercel.app/api/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "user123",
+    "message": "show my tasks"
+  }'
+```
 
-## Important Notes
+**Math Calculation:**
+```bash
+curl -X POST https://your-project.vercel.app/api/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "user123",
+    "message": "calculate 100 + 50"
+  }'
+```
 
-1. **Never commit `.env` file** - It's gitignored for security
-2. **Always set environment variables in Vercel dashboard** - Don't hardcode API keys
-3. **Serverless limits** - Vercel functions have execution time limits (10s for Hobby, 60s for Pro)
-4. **Cold starts** - First request may be slower due to serverless cold start
+## 📊 Monitoring
 
-## Getting Your Groq API Key
+### View Logs
+1. Go to Vercel Dashboard → Your Project → Deployments
+2. Click on a deployment
+3. Go to **Functions** tab to see runtime logs
 
-1. Go to https://console.groq.com
-2. Sign up or log in
-3. Navigate to "API Keys"
-4. Create a new API key
-5. Copy the key (starts with `gsk_`)
-6. Add it to Vercel environment variables
+### Check Function Status
+```bash
+vercel logs
+```
 
-## Support
+## 🔐 Security
 
-If you encounter issues:
-1. Check Vercel deployment logs
-2. Check Vercel function logs
-3. Verify all environment variables are set
-4. Review the error messages in the logs
+### Best Practices
+1. ✅ **Never commit `.env` file** - Already in `.gitignore`
+2. ✅ **Use environment variables** - Set in Vercel dashboard
+3. ✅ **Rotate API keys regularly** - Update in Vercel when changed
+4. ✅ **Use HTTPS only** - Vercel provides automatic SSL
 
-## Production Checklist
+## 🚀 Continuous Deployment
 
-- [ ] GROQ_API_KEY set in Vercel
-- [ ] Repository connected to Vercel
-- [ ] Environment variables added for all environments
-- [ ] Test deployment successful
-- [ ] Webhook endpoint responding correctly
-- [ ] Error handling working (graceful degradation if API key missing)
+Once connected to GitHub, Vercel will automatically:
+- Deploy on every push to `main` branch
+- Create preview deployments for pull requests
+- Run builds and checks before deployment
+
+## 📦 Custom Domain (Optional)
+
+To use a custom domain:
+1. Go to Project Settings → Domains
+2. Add your domain
+3. Update DNS records as instructed
+4. Wait for SSL certificate provisioning
+
+## 📚 Additional Resources
+
+- [Vercel Documentation](https://vercel.com/docs)
+- [Node.js on Vercel](https://vercel.com/docs/frameworks/node-js)
+- [Environment Variables](https://vercel.com/docs/environment-variables)
+- [Groq API Documentation](https://console.groq.com/docs)
+
+---
+
+**Need Help?** Check the Vercel logs or contact support at support@vercel.com

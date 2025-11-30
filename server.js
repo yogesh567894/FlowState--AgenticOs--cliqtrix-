@@ -19,6 +19,11 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Serve static files (HTML frontend)
 app.use(express.static('public'));
 
+// Root route - serve the web interface
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/public/index.html');
+});
+
 // Logging middleware
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
@@ -34,6 +39,37 @@ app.get('/health', (req, res) => {
       maxInputTokens: 6000,
       maxOutputTokens: 500,
       maxTotalTokens: 6500
+    }
+  });
+});
+
+// API info endpoint
+app.get('/api', (req, res) => {
+  res.json({
+    name: 'FlowState Conversational Bot API',
+    version: '1.0.0',
+    description: 'NLP-powered task management and conversational assistant',
+    endpoints: {
+      health: 'GET /health',
+      webhook: 'POST /api/webhook',
+      apiInfo: 'GET /api'
+    },
+    features: [
+      'Task management (create, list, complete, delete)',
+      'Note taking and management',
+      'Focus mode timer',
+      'Math calculations',
+      'Natural language understanding',
+      'Priority management',
+      'Context-aware conversations'
+    ],
+    example: {
+      endpoint: '/api/webhook',
+      method: 'POST',
+      body: {
+        userId: 'user123',
+        message: 'create a task to review code'
+      }
     }
   });
 });

@@ -294,13 +294,26 @@
     </div>
 
     <script>
-        const API_BASE = 'http://localhost:3000';
+        // Auto-detect API base URL (localhost or deployed)
+        const API_BASE = window.location.hostname === 'localhost' 
+            ? 'http://localhost:3000' 
+            : window.location.origin;
         const MAX_INPUT_TOKENS = 6000;
 
         // Test connection on load
         window.onload = function() {
+            updateHeaderInfo();
             testConnection();
         };
+
+        // Update header with current environment
+        function updateHeaderInfo() {
+            const isLocal = window.location.hostname === 'localhost';
+            const envInfo = document.querySelector('.header p');
+            if (envInfo) {
+                envInfo.textContent = `Backend: ${API_BASE} | Model: llama-3.3-70b-versatile | Environment: ${isLocal ? 'Local' : 'Production'}`;
+            }
+        }
 
         // Estimate tokens (1 token ≈ 4 characters)
         function estimateTokens(text) {
