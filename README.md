@@ -1,8 +1,14 @@
-# Zoho Backend with Groq Token Splitting
+# State OS
 
-A robust backend system with **automatic token splitting** for handling large prompts using Groq's Mixtral-8x7b model.
+A minimalistic CLI-based backend system with **automatic token splitting** for handling large prompts using Groq's llama-3.3-70b-versatile model.
 
 ## 🎯 Key Features
+
+### Minimalistic CLI Interface
+- **Terminal-style UI**: Clean, distraction-free command interface
+- **Keyboard shortcuts**: Enter to send, Shift+Enter for new line
+- **Real-time feedback**: Token counting and status updates
+- **Command history**: All interactions logged in terminal view
 
 ### Token Safety Layer
 - **Hard limits enforced**: Never exceeds 6000 input tokens per Groq call
@@ -51,11 +57,64 @@ npm run dev
 npm start
 ```
 
-### 4. Test Token Splitting
+### 4. Access State OS Interface
+
+Open your browser and navigate to:
+```
+http://localhost:3000
+```
+
+You'll see the minimalistic CLI interface with:
+- Real-time token counting
+- Automatic connection status
+- Terminal-style command input
+- Quick example commands
+
+### 5. Test Token Splitting
 
 ```bash
 npm test
 ```
+
+## 💻 Using the CLI Interface
+
+### Quick Start
+1. Enter your user ID (default: `test_user_001`)
+2. Type your command in the input box
+3. Press **Enter** to send (or **Shift+Enter** for new line)
+4. Watch the terminal for real-time feedback
+
+### Keyboard Shortcuts
+- `Enter` → Send message
+- `Shift + Enter` → New line (multi-line input)
+
+### Command Format
+```
+user@stateos:~$ create task: setup development environment
+```
+
+### Example Commands
+```bash
+# Simple task
+create task: review pull requests and update docs
+
+# Multiple tasks
+create 5 tasks:
+1) setup dev environment
+2) design db schema
+3) implement auth
+4) create api endpoints
+5) write tests
+
+# Long requests (automatic chunking)
+create 50 tasks: [detailed list...]
+```
+
+### Built-in Examples
+Click the example buttons (`ex1`, `ex2`, `ex3`) to load:
+- **ex1**: Simple single task
+- **ex2**: Multiple tasks (5)
+- **ex3**: Long request (50 tasks) - tests chunking
 
 ## 📡 API Endpoints
 
@@ -263,9 +322,16 @@ Tests cover:
 ## 📁 Project Structure
 
 ```
-zoho/
+state-os/
+├── public/
+│   └── index.html             # Minimalistic CLI interface
 ├── services/
-│   └── nlp.js                 # Token splitting & Groq integration
+│   ├── nlp.js                 # Token splitting & Groq integration
+│   ├── context.js             # Context management
+│   ├── focus.js               # Focus mode handling
+│   ├── formatter.js           # Response formatting
+│   ├── notes.js               # Note management
+│   └── tasks.js               # Task management
 ├── webhooks/
 │   └── webhook.js             # Request handlers with queue management
 ├── utils/
@@ -273,14 +339,60 @@ zoho/
 ├── tests/
 │   └── test-token-splitting.js # Test suite
 ├── data/
-│   └── users.json             # User data storage (created at runtime)
+│   ├── users.json             # User data storage
+│   └── notes.json             # Notes storage
 ├── server.js                  # Express server entry point
 ├── package.json
 ├── .env.example
 └── README.md
 ```
 
-## 🔑 Key Functions
+## 🎨 Interface Features
+
+### Terminal Display
+- **Real-time logging**: All commands and responses shown in terminal
+- **Color coding**: 
+  - Green: Success messages and output
+  - Red: Errors
+  - Orange: Warnings
+  - Gray: System info
+- **Command echo**: Your input is displayed before processing
+- **Auto-scroll**: Terminal automatically scrolls to latest output
+
+### Status Bar
+- **Connection status**: online/offline indicator
+- **API endpoint**: Shows if running locally or in production
+- **Token counter**: Real-time token estimation
+- **Chunk indicator**: Shows if message will be split
+- **Status**: ok/split based on message length
+
+### Input Controls
+- Minimalistic input fields with inline labels
+- Focus effects on active inputs
+- Token info updated in real-time
+- Auto-clear after successful send
+- Auto-focus for quick next command
+
+## 🌐 Deployment
+
+### Local Development
+```bash
+npm run dev
+# Access at http://localhost:3000
+```
+
+### Production Deployment
+The interface auto-detects the environment and adjusts API calls accordingly:
+- **Local**: Calls `http://localhost:3000`
+- **Production**: Calls the deployed domain
+
+Deploy to platforms like:
+- Vercel
+- Heroku
+- Railway
+- DigitalOcean
+
+## 🎛️ Configuration
 
 ### In `services/nlp.js`:
 
@@ -346,6 +458,17 @@ The system handles various error scenarios:
 - **Chunked call latency**: ~2-5 seconds (depending on chunk count)
 - **Max concurrent chunks**: Sequential (one at a time to avoid rate limits)
 - **Queue processing**: 10 tasks per batch
+- **Interface**: Lightweight, instant load, minimal CSS
+
+## 🎨 Design Philosophy
+
+State OS follows these principles:
+
+1. **Minimalism**: No unnecessary UI elements or decorations
+2. **Efficiency**: Keyboard-first workflow (Enter to send)
+3. **Clarity**: Clear, concise feedback in terminal format
+4. **Speed**: Instant visual feedback, no loading states
+5. **Accessibility**: High contrast, readable monospace fonts
 
 ## 🤝 Contributing
 
@@ -353,11 +476,23 @@ The system handles various error scenarios:
 2. Monitor Groq API responses for token errors
 3. Adjust MAX_INPUT_TOKENS_PER_CALL if needed
 4. Report issues with specific token counts
+5. Suggest UI/UX improvements for the CLI interface
 
-## 📄 License
+## � Roadmap
+
+- [ ] Command history (up/down arrow navigation)
+- [ ] Auto-complete for common commands
+- [ ] Custom themes (dark, light, matrix)
+- [ ] Export terminal session
+- [ ] Multi-user support with authentication
+- [ ] WebSocket for real-time updates
+- [ ] Voice input support
+
+## �📄 License
 
 MIT
 
 ---
 
-**Built with token safety in mind** 🛡️ **Never exceeds Groq limits** 🚀
+**State OS** - Built with minimalism and token safety in mind 🛡️ | Never exceeds Groq limits 🚀 | CLI-first interface ⚡
+
