@@ -226,15 +226,28 @@ async function safeGroqCall(systemPrompt, userPrompt) {
  * @param {string} userId - User ID for context
  * @returns {Promise<Object>} Combined parsed intent(s)
  */
-async function parseLongInput(userText, userId) {
+async function parseLongInput(userText, context = {}) {
+  const modeContext = context.mode ? `\nCurrent mode is ${context.mode.toUpperCase()}; prefer ${context.mode}-related actions.` : '';
+  
   const systemPrompt = `You are a task management assistant. Parse user requests into structured intents.
+
+STRICT ACTION WHITELIST - ONLY return one of these actions:
+create_task, list_tasks, update_priority, complete_task, delete_task, create_note, list_notes, focus, show_urgent, math, small_talk, help, unknown
+${modeContext}
+
 Return ONLY valid JSON, no markdown, no code blocks, no explanations.
 Format:
 {
-  "action": "create_task" | "list_tasks" | "update_task" | "delete_task" | "search" | "other",
-  "tasks": [{ "title": "...", "description": "...", "priority": "high|medium|low" }],
-  "query": "...",
-  "entities": {...}
+  "mode": "auto" | "tasks" | "notes" | "focus" | "chat",
+  "action": "create_task" | "list_tasks" | "update_priority" | "complete_task" | "delete_task" | "create_note" | "list_notes" | "focus" | "show_urgent" | "math" | "small_talk" | "help" | "unknown",
+  "entities": {
+    "task_ref": "title text or number",
+    "person": "assignee",
+    "priority": "high|medium|low",
+    "sortBy": "priority"
+  },
+  "tasks": [{ "title": "...", "description": "...", "priority": "high|medium|low", "assignee": "name or null" }],
+  "query": "original user message"
 }
 
 If user requests multiple tasks, include all in the "tasks" array.`;
@@ -249,7 +262,9 @@ If user requests multiple tasks, include all in the "tasks" array.`;
     
     try {
       const cleaned = cleanJsonResponse(content);
-      return JSON.parse(cleaned);
+      const parsed = JSON.parse(cleaned);
+      parsed.query = parsed.query || userText;
+      return parsed;
     } catch (e) {
       console.error('[Parse Error] Invalid JSON from Groq:', content.substring(0, 200));
       
@@ -257,7 +272,9 @@ If user requests multiple tasks, include all in the "tasks" array.`;
       try {
         const repaired = repairTruncatedJson(cleanJsonResponse(content));
         console.log('[Parse] Attempting JSON repair...');
-        return JSON.parse(repaired);
+        const parsed = JSON.parse(repaired);
+        parsed.query = parsed.query || userText;
+        return parsed;
       } catch (e2) {
         console.error('[Parse Error] JSON repair failed, using regex fallback');
         return regexFallbackParser(userText);
@@ -265,7 +282,7 @@ If user requests multiple tasks, include all in the "tasks" array.`;
     }
   }
   
-  // Input is too large - split into chunks
+  // Input is too large - split into chunks (800-1000 chars each)
   console.log(`[Token Split] Input too large (${inputTokens} tokens), splitting...`);
   const chunks = splitTextIntoChunks(userText, MAX_INPUT_TOKENS_PER_CALL - estimateTokens(systemPrompt) - 100);
   
@@ -289,6 +306,7 @@ If user requests multiple tasks, include all in the "tasks" array.`;
       try {
         const cleaned = cleanJsonResponse(content);
         const intent = JSON.parse(cleaned);
+        intent.query = intent.query || chunks[i];
         
         // Track primary action from first chunk
         if (i === 0) {
@@ -302,6 +320,7 @@ If user requests multiple tasks, include all in the "tasks" array.`;
         try {
           const repaired = repairTruncatedJson(cleanJsonResponse(content));
           const intent = JSON.parse(repaired);
+          intent.query = intent.query || chunks[i];
           
           if (i === 0) {
             primaryAction = intent.action;
@@ -318,7 +337,7 @@ If user requests multiple tasks, include all in the "tasks" array.`;
       console.error(`[Token Split] Error processing chunk ${i + 1}:`, error);
       
       // Try with smaller chunk size on error
-      if (error.message.includes('token')) {
+      if (error.message && error.message.includes('token')) {
         console.log('[Token Split] Retrying with smaller chunk...');
         const smallerChunks = splitTextIntoChunks(chunks[i], Math.floor(MAX_INPUT_TOKENS_PER_CALL / 2));
         
@@ -352,23 +371,55 @@ If user requests multiple tasks, include all in the "tasks" array.`;
  */
 function mergeIntents(intents, primaryAction) {
   if (intents.length === 0) {
-    return { action: 'error', message: 'No intents parsed' };
+    return { action: 'unknown', message: 'No intents parsed' };
   }
   
   if (intents.length === 1) {
     return intents[0];
   }
   
+  // Priority order for actions (most specific/actionable first)
+  const actionPriority = {
+    'delete_task': 12,
+    'complete_task': 11,
+    'update_priority': 10,
+    'create_task': 9,
+    'create_note': 8,
+    'show_urgent': 7,
+    'focus': 6,
+    'list_tasks': 5,
+    'list_notes': 4,
+    'math': 3,
+    'help': 2,
+    'small_talk': 1,
+    'unknown': 0
+  };
+  
+  // Determine best action if not already set
+  if (!primaryAction) {
+    let maxPriority = -1;
+    for (const intent of intents) {
+      const action = intent.action || 'unknown';
+      const priority = actionPriority[action] || 0;
+      if (priority > maxPriority) {
+        maxPriority = priority;
+        primaryAction = action;
+      }
+    }
+  }
+  
   // Merge multiple intents
   const merged = {
+    mode: intents[0].mode || 'auto',
     action: primaryAction,
     tasks: [],
-    queries: [],
+    notes: [],
     entities: {},
     metadata: {
       chunked: true,
       chunkCount: intents.length
-    }
+    },
+    query: ''
   };
   
   for (const intent of intents) {
@@ -377,14 +428,29 @@ function mergeIntents(intents, primaryAction) {
       merged.tasks.push(...intent.tasks);
     }
     
-    // Merge queries
-    if (intent.query) {
-      merged.queries.push(intent.query);
+    // Merge notes
+    if (intent.notes && Array.isArray(intent.notes)) {
+      merged.notes.push(...intent.notes);
     }
     
-    // Merge entities
+    // Merge queries
+    if (intent.query) {
+      merged.query += (merged.query ? ' ' : '') + intent.query;
+    }
+    
+    // Merge entities (later chunks override earlier ones for same key)
     if (intent.entities) {
       merged.entities = { ...merged.entities, ...intent.entities };
+    }
+    
+    // Carry reply_hint from small_talk
+    if (intent.reply_hint) {
+      merged.reply_hint = intent.reply_hint;
+    }
+    
+    // Special handling for sortBy - if any chunk has it, keep it
+    if (intent.entities && intent.entities.sortBy) {
+      merged.entities.sortBy = intent.entities.sortBy;
     }
   }
   
@@ -406,20 +472,50 @@ function mergeIntents(intents, primaryAction) {
  * @param {string} userId - User ID for context
  * @returns {Promise<Object>} Parsed intent(s)
  */
-async function parseIntent(userText, userId) {
+async function parseIntent(userText, context = {}) {
   if (!userText || !userText.trim()) {
     return { action: 'error', message: 'Empty input' };
   }
   
   try {
+    // Mode context injection
+    const modeContext = context.mode ? `\nCurrent mode is ${context.mode.toUpperCase()}; prefer ${context.mode}-related actions.` : '';
+    
     const systemPrompt = `You are a task management assistant. Parse user requests into structured intents.
+
+STRICT ACTION WHITELIST - ONLY return one of these actions:
+create_task, list_tasks, update_priority, complete_task, delete_task, create_note, list_notes, focus, show_urgent, math, small_talk, help, unknown
+
+RULES:
+- "make X urgent/high/low" OR "change priority" → action="update_priority" with entities.priority and entities.task_ref
+- "mark as done/complete X" → action="complete_task" with entities.task_ref
+- "delete/remove X" → action="delete_task" with entities.task_ref
+- "re arrange the list based on tasks priority" → action="list_tasks" with entities.sortBy="priority"
+- "what time/day" or greetings → action="small_talk" with reply_hint
+- "add 5094 + 3776" → action="math" with entities.numbers and entities.operation
+- If ambiguous or unsupported → action="unknown"
+${modeContext}
+
 Return ONLY valid JSON, no markdown, no code blocks, no explanations.
 Format:
 {
-  "action": "create_task" | "list_tasks" | "update_task" | "delete_task" | "search" | "other",
-  "tasks": [{ "title": "...", "description": "...", "priority": "high|medium|low" }],
-  "query": "...",
-  "entities": {...}
+  "mode": "auto" | "tasks" | "notes" | "focus" | "chat",
+  "action": "create_task" | "list_tasks" | "update_priority" | "complete_task" | "delete_task" | "create_note" | "list_notes" | "focus" | "show_urgent" | "math" | "small_talk" | "help" | "unknown",
+  "entities": {
+    "title": "task title text",
+    "task_ref": "title text or number like 1,2,3 from last list",
+    "person": "assignee name",
+    "project": "project name",
+    "priority": "high" | "medium" | "low",
+    "sortBy": "priority",
+    "datetime": "time reference",
+    "numbers": [5094, 3776],
+    "operation": "addition" | "subtraction" | "multiplication" | "division"
+  },
+  "tasks": [{ "title": "...", "description": "...", "priority": "high|medium|low", "assignee": "name or null" }],
+  "notes": [{ "title": "...", "body": "...", "tags": [] }],
+  "reply_hint": "short reply under 60 words for small_talk",
+  "query": "original user message"
 }`;
 
     const inputTokens = estimateTokens(systemPrompt + userText);
@@ -431,11 +527,13 @@ Format:
       const response = await safeGroqCall(systemPrompt, userText);
       const content = response.choices[0]?.message?.content || '{}';
       const cleaned = cleanJsonResponse(content);
-      return JSON.parse(cleaned);
+      const parsed = JSON.parse(cleaned);
+      parsed.query = parsed.query || userText;
+      return parsed;
     } else {
       // Long input - use chunking
       console.log('[Parse Intent] Using multi-call chunking strategy');
-      return await parseLongInput(userText, userId);
+      return await parseLongInput(userText, context);
     }
   } catch (error) {
     console.error('[Parse Intent] Error:', error);
@@ -480,14 +578,91 @@ async function parseIntentWithRetry(userText, userId, retries = 1) {
  * @returns {Object} Basic parsed intent
  */
 function regexFallbackParser(text) {
+  const lowerText = text.toLowerCase();
+  
   const intent = {
-    action: 'create_task',
+    mode: 'auto',
+    action: 'unknown',
     tasks: [],
+    entities: {},
+    query: text,
     fallback: true
   };
   
+  // Detect action by keywords
+  if (/complete|done|finish|mark.*done/i.test(text)) {
+    intent.action = 'complete_task';
+    // Try to extract task reference
+    const match = text.match(/complete|done|finish\s+(.+)/i);
+    if (match) intent.entities.task_ref = match[1].trim();
+    return intent;
+  }
+  
+  if (/delete|remove/i.test(text)) {
+    intent.action = 'delete_task';
+    const match = text.match(/delete|remove\s+(.+)/i);
+    if (match) intent.entities.task_ref = match[1].trim();
+    return intent;
+  }
+  
+  if (/change.*priority|make.*urgent|make.*high|make.*low|update.*priority/i.test(text)) {
+    intent.action = 'update_priority';
+    // Extract priority
+    if (/\b(high|urgent)\b/i.test(text)) intent.entities.priority = 'high';
+    else if (/\blow\b/i.test(text)) intent.entities.priority = 'low';
+    else intent.entities.priority = 'medium';
+    return intent;
+  }
+  
+  if (/show|list|display.*tasks/i.test(text)) {
+    intent.action = 'list_tasks';
+    // Check for sorting
+    if (/sort|arrange.*priority/i.test(text)) intent.entities.sortBy = 'priority';
+    return intent;
+  }
+  
+  if (/note:/i.test(text) || /remember|save this|meeting/i.test(text)) {
+    intent.action = 'create_note';
+    intent.notes = [{ title: text.substring(0, 50), body: text, tags: [] }];
+    return intent;
+  }
+  
+  if (/focus|pomodoro/i.test(text)) {
+    intent.action = 'focus';
+    return intent;
+  }
+  
+  if (/what.*urgent|show urgent/i.test(text)) {
+    intent.action = 'show_urgent';
+    return intent;
+  }
+  
+  if (/^\s*\d+\s*[\+\-\*\/]\s*\d+/.test(text)) {
+    intent.action = 'math';
+    const mathMatch = text.match(/(\d+)\s*([\+\-\*\/])\s*(\d+)/);
+    if (mathMatch) {
+      intent.entities.numbers = [parseInt(mathMatch[1]), parseInt(mathMatch[3])];
+      intent.entities.operation = {
+        '+': 'addition',
+        '-': 'subtraction',
+        '*': 'multiplication',
+        '/': 'division'
+      }[mathMatch[2]];
+    }
+    return intent;
+  }
+  
+  if (/^(hi|hello|hey|what time|what day|help)/i.test(text)) {
+    if (/help/i.test(text)) intent.action = 'help';
+    else intent.action = 'small_talk';
+    return intent;
+  }
+  
+  // Default: try to extract tasks
+  intent.action = 'create_task';
+  
   // Try to extract numbered tasks
-  const taskMatches = text.match(/\d+\)\s*([^\n]+)/g);
+  const taskMatches = text.match(/\d+[\)\.]\s*([^\n]+)/g);
   
   if (taskMatches) {
     intent.tasks = taskMatches.map(match => {

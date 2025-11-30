@@ -5,9 +5,9 @@ package-lock.json
 # Environment variables
 .env
 
-# Data files
+# Data files (user-generated data only)
 data/
-*.json
+data/*.json
 
 # Logs
 logs/
