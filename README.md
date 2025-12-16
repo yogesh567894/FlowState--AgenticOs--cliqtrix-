@@ -554,7 +554,7 @@ MIT
 
 ---
 
-**Built with ❤️ for Zoho Cliqtrix 2025**
+**Built  for Zoho Cliqtrix 2025**
 
 ---
 
