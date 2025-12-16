@@ -5,7 +5,7 @@
 
 const express = require('express');
 const { parseIntent } = require('../services/nlp');
-const { createTasks, getTasks, getUrgentTasks, searchTasks, deleteTasks, deleteAllTasks, completeTasks, findTaskByTitle, resolveTaskRef, updateTaskPriority } = require('../services/tasks');
+const { createTasks, getTasks, getUrgentTasks, searchTasks, deleteTasks, deleteAllTasks, completeTasks, findTaskByTitle, resolveTaskRef, updateTaskPriority, updateTask, getTasksAssignedTo } = require('../services/tasks');
 const { createNote, listNotes, searchNotes, updateNote } = require('../services/notes');
 const { startFocus, getCurrentFocus } = require('../services/focus');
 const { 
@@ -127,6 +127,10 @@ router.post('/webhook', async (req, res) => {
         response = await handleUpdatePriority(userId, intent, userContext);
         break;
         
+      case 'update_task':
+        response = await handleUpdateTask(userId, intent, userContext);
+        break;
+        
       case 'show_urgent':
         response = await handleShowUrgent(userId, context);
         break;
@@ -206,7 +210,7 @@ async function handleCreateTasks(userId, intent, context) {
       title: e.title,
       description: e.description || '',
       priority: e.priority || 'medium',
-      assignee: e.person || null,
+      assignee: e.assignee || e.person || null,
       dueDate: e.datetime || null,
       project: e.project || null
     }];
@@ -232,9 +236,13 @@ async function handleCreateTasks(userId, intent, context) {
 async function handleListTasks(userId, intent, context, userContext) {
   const filters = { status: 'pending' }; // Default to pending tasks
   
-  // Apply assignee filter from entities.person
-  if (intent.entities && intent.entities.person) {
-    filters.assignee = intent.entities.person;
+  // Check scope: "my tasks" vs "all tasks"
+  const scope = intent.entities?.scope || 'all'; // default to 'all' for backward compatibility
+  const showOnlyOwned = scope === 'my';
+  
+  // Apply assignee filter from entities.assignee (updated from person)
+  if (intent.entities && intent.entities.assignee) {
+    filters.assignee = intent.entities.assignee;
   }
   
   // Apply priority filter
@@ -247,12 +255,36 @@ async function handleListTasks(userId, intent, context, userContext) {
     filters.projectId = context.projectId;
   }
   
-  // Apply sorting - check for sortBy (not sort_by)
-  if (intent.entities && intent.entities.sortBy) {
-    filters.sortBy = intent.entities.sortBy;
+  // Get user's own tasks
+  let tasks = getTasks(userId, filters);
+  
+  // CROSS-USER VISIBILITY: Also get tasks assigned to this user (created by others)
+  // Only if showing "all tasks"
+  let assignedTasksCount = 0;
+  if (!showOnlyOwned) {
+    const assignedTasks = getTasksAssignedTo(userId);
+    
+    // Merge assigned tasks (avoiding duplicates)
+    const taskIds = new Set(tasks.map(t => t.id));
+    assignedTasks.forEach(task => {
+      if (!taskIds.has(task.id) && task.status === 'pending') {
+        tasks.push(task);
+      }
+    });
+  } else {
+    // If showing only owned, still check if there are assigned tasks for helpful message
+    const assignedTasks = getTasksAssignedTo(userId);
+    assignedTasksCount = assignedTasks.filter(t => t.status === 'pending').length;
   }
   
-  const tasks = getTasks(userId, filters);
+  // Apply sorting - check for sortBy (not sort_by)
+  if (intent.entities && intent.entities.sortBy) {
+    // Sort the merged tasks
+    const priorityOrder = { high: 0, medium: 1, low: 2 };
+    if (intent.entities.sortBy === 'priority') {
+      tasks.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+    }
+  }
   
   // Update context with full task list for future reference
   updateContext(userId, {
@@ -261,7 +293,13 @@ async function handleListTasks(userId, intent, context, userContext) {
     action: 'list_tasks'
   });
   
-  return formatTaskList(tasks, { ...context, filters: intent.entities });
+  return formatTaskList(tasks, { 
+    ...context, 
+    filters: intent.entities,
+    currentUser: userId,
+    showOnlyOwned: showOnlyOwned,
+    assignedTasksCount: assignedTasksCount
+  });
 }
 
 /**
@@ -383,6 +421,105 @@ async function handleUpdatePriority(userId, intent, userContext) {
 }
 
 /**
+ * Handle update task (assignee, description, etc.)
+ */
+async function handleUpdateTask(userId, intent, userContext) {
+  // Get task_ref from entities
+  const taskRef = intent.entities?.task_ref;
+  const lastTaskList = userContext.lastTaskList || [];
+  
+  // Resolve the task reference to actual task IDs
+  const taskIds = resolveTaskRef(userId, taskRef, lastTaskList);
+  
+  if (taskIds.length === 0) {
+    // Provide helpful error message
+    if (!taskRef && lastTaskList.length === 0) {
+      return {
+        message: '❌ No task found. Please list your tasks first or specify which task to update.',
+        structured: { type: 'error', error: 'No task specified' }
+      };
+    } else if (taskRef && typeof taskRef === 'string') {
+      return {
+        message: `❌ Could not find a task matching "${taskRef}". Try listing your tasks first.`,
+        structured: { type: 'error', error: 'Task not found' }
+      };
+    } else {
+      return {
+        message: '❌ Could not find that task. Please list your tasks first or specify which task to update.',
+        structured: { type: 'error', error: 'Task not found' }
+      };
+    }
+  }
+  
+  // Build updates object from entities
+  const updates = {};
+  
+  if (intent.entities?.assignee) {
+    updates.assignee = intent.entities.assignee;
+  }
+  
+  if (intent.entities?.priority) {
+    updates.priority = intent.entities.priority;
+  }
+  
+  if (intent.entities?.description) {
+    updates.description = intent.entities.description;
+  }
+  
+  // Also check entities.updates object
+  if (intent.entities?.updates) {
+    Object.assign(updates, intent.entities.updates);
+  }
+  
+  if (Object.keys(updates).length === 0) {
+    return {
+      message: '❌ No updates specified. What would you like to change?',
+      structured: { type: 'error', error: 'No updates specified' }
+    };
+  }
+  
+  // Update the first resolved task
+  const result = updateTask(userId, taskIds[0], updates);
+  
+  if (result.updated > 0) {
+    // Build message showing changes
+    let changeMsg = '';
+    
+    if (result.changes.assignee) {
+      const oldAssignee = result.changes.assignee.old || 'unassigned';
+      const newAssignee = result.changes.assignee.new || 'unassigned';
+      changeMsg += `👤 Assignee: ${oldAssignee} → @${newAssignee}\n`;
+    }
+    
+    if (result.changes.priority) {
+      const priorityEmoji = { high: '🔴', medium: '🟡', low: '🟢' };
+      changeMsg += `${priorityEmoji[result.changes.priority.old]} Priority: ${result.changes.priority.old} → ${priorityEmoji[result.changes.priority.new]} ${result.changes.priority.new}\n`;
+    }
+    
+    if (result.changes.description) {
+      changeMsg += `📝 Description updated\n`;
+    }
+    
+    // Update context
+    updateContext(userId, { action: 'update_task' });
+    
+    return {
+      message: `✅ Updated task: **${result.task.title}**\n\n${changeMsg}`,
+      structured: { 
+        type: 'task_updated', 
+        taskId: taskIds[0],
+        changes: result.changes
+      }
+    };
+  } else {
+    return {
+      message: `❌ ${result.error}`,
+      structured: { type: 'error', error: result.error }
+    };
+  }
+}
+
+/**
  * Handle delete task
  */
 async function handleDeleteTask(userId, intent, userContext) {
@@ -390,13 +527,13 @@ async function handleDeleteTask(userId, intent, userContext) {
   const taskRef = intent.entities?.task_ref;
   const lastTaskList = userContext.lastTaskList || [];
   
-  // Special case: "delete all" - use deleteAllTasks for efficiency
+  // Special case: "delete all" - delete only owned tasks, not assigned ones
   if (taskRef === 'all' || taskRef === 'everything') {
     const count = deleteAllTasks(userId);
     
     if (count === 0) {
       return {
-        message: '❌ No tasks to delete. You don\'t have any tasks yet.',
+        message: '❌ No tasks to delete. You don\'t have any tasks you created.',
         structured: { type: 'error', error: 'No tasks found' }
       };
     }
@@ -405,7 +542,7 @@ async function handleDeleteTask(userId, intent, userContext) {
     updateContext(userId, { taskList: [], taskIds: [], action: 'delete_task' });
     
     return {
-      message: `🗑️ Deleted all ${count} task${count > 1 ? 's' : ''}!`,
+      message: `🗑️ Deleted all ${count} task${count > 1 ? 's' : ''} you created!\n\n💡 Note: Tasks assigned to you by others were not deleted.`,
       structured: { type: 'tasks_deleted', count: count }
     };
   }

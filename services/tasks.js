@@ -352,6 +352,93 @@ function updateTaskPriority(userId, taskId, newPriority) {
 }
 
 /**
+ * Update task fields (assignee, description, etc.)
+ */
+function updateTask(userId, taskId, updates) {
+  const users = loadUsers();
+  
+  if (!users[userId] || !users[userId].tasks) {
+    return { updated: 0, error: 'User or tasks not found' };
+  }
+  
+  const task = users[userId].tasks.find(t => t.id === taskId);
+  
+  if (!task) {
+    return { updated: 0, error: 'Task not found' };
+  }
+  
+  const changes = {};
+  
+  // Update assignee
+  if (updates.assignee !== undefined) {
+    changes.assignee = { old: task.assignee, new: updates.assignee };
+    task.assignee = updates.assignee;
+  }
+  
+  // Update description
+  if (updates.description !== undefined) {
+    changes.description = { old: task.description, new: updates.description };
+    task.description = updates.description;
+  }
+  
+  // Update priority
+  if (updates.priority !== undefined) {
+    const validPriorities = ['high', 'medium', 'low'];
+    if (validPriorities.includes(updates.priority.toLowerCase())) {
+      changes.priority = { old: task.priority, new: updates.priority.toLowerCase() };
+      task.priority = updates.priority.toLowerCase();
+    }
+  }
+  
+  // Update due date
+  if (updates.dueDate !== undefined) {
+    changes.dueDate = { old: task.dueDate, new: updates.dueDate };
+    task.dueDate = updates.dueDate;
+  }
+  
+  task.updatedAt = new Date().toISOString();
+  
+  saveUsers(users);
+  
+  console.log(`[Tasks] Updated task ${taskId} for user ${userId}:`, changes);
+  
+  return { 
+    updated: 1, 
+    task: task,
+    changes: changes
+  };
+}
+
+/**
+ * Get tasks assigned to a specific person (cross-user visibility)
+ */
+function getTasksAssignedTo(assignee) {
+  const users = loadUsers();
+  const assignedTasks = [];
+  
+  // Search through all users' tasks
+  for (const userId in users) {
+    const user = users[userId];
+    if (user.tasks && Array.isArray(user.tasks)) {
+      const userTasks = user.tasks.filter(task => {
+        if (!task.assignee) return false;
+        return task.assignee.toLowerCase() === assignee.toLowerCase();
+      });
+      
+      // Add task with owner info
+      userTasks.forEach(task => {
+        assignedTasks.push({
+          ...task,
+          owner: userId
+        });
+      });
+    }
+  }
+  
+  return assignedTasks;
+}
+
+/**
  * Search tasks
  */
 function searchTasks(userId, query) {
@@ -377,6 +464,8 @@ module.exports = {
   getUrgentTasks,
   updateTaskStatus,
   updateTaskPriority,
+  updateTask,
+  getTasksAssignedTo,
   deleteTask,
   deleteTasks,
   deleteAllTasks,

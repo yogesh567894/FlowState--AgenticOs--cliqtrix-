@@ -58,26 +58,32 @@ function formatTaskCreated(tasks, context = {}) {
 }
 
 /**
- * Format task list response
+ * Format task list response with differentiation between owned and assigned
  */
 function formatTaskList(tasks, context = {}) {
   const filters = context.filters || {};
+  const currentUser = context.currentUser;
   
   if (tasks.length === 0) {
     // Provide context-specific empty message
     let emptyMessage = '📋 ';
     
-    if (filters.person) {
-      emptyMessage += `You don't have any tasks for **${filters.person}**.`;
+    if (filters.assignee) {
+      emptyMessage += `You don't have any tasks for **${filters.assignee}**.`;
     } else if (filters.priority) {
       emptyMessage += `You don't have any **${filters.priority}** priority tasks.`;
+    } else if (context.showOnlyOwned && context.assignedTasksCount > 0) {
+      // Special case: "my tasks" is empty but user has assigned tasks
+      emptyMessage += `You haven't created any tasks yet.\n\n💡 **Tip:** You have ${context.assignedTasksCount} task${context.assignedTasksCount > 1 ? 's' : ''} assigned to you! Type "list" or "list all tasks" to see them.`;
     } else if (filters.sortBy) {
       emptyMessage += 'You don\'t have any tasks yet.';
     } else {
       emptyMessage += 'You don\'t have any tasks yet.';
     }
     
-    emptyMessage += '\n\n💡 Create one with: "create a task to [description]"';
+    if (!context.showOnlyOwned || !context.assignedTasksCount) {
+      emptyMessage += '\n\n💡 Create one with: "create a task to [description]"';
+    }
     
     return {
       message: emptyMessage,
@@ -85,42 +91,68 @@ function formatTaskList(tasks, context = {}) {
     };
   }
   
-  let message = `📋 **You have ${tasks.length} task${tasks.length !== 1 ? 's' : ''}**`;
+  // Separate owned tasks from assigned tasks
+  const ownedTasks = tasks.filter(t => !t.owner || t.owner === currentUser);
+  const assignedToMe = tasks.filter(t => t.owner && t.owner !== currentUser);
+  
+  let message = '';
+  
+  // Show appropriate header based on filter mode
+  if (context.showOnlyOwned) {
+    message = `📋 **My Tasks** (${ownedTasks.length})`;
+  } else {
+    const total = tasks.length;
+    message = `📋 **All Tasks** (${total})`;
+    if (ownedTasks.length > 0 && assignedToMe.length > 0) {
+      message += ` - ${ownedTasks.length} created by me, ${assignedToMe.length} assigned to me`;
+    }
+  }
   
   // Add context info
-  if (filters.person) {
-    message += ` for **${filters.person}**`;
+  if (filters.assignee) {
+    message += ` for **${filters.assignee}**`;
   }
   if (context.project) {
     message += ` in ${context.project}`;
   }
   
-  // Group by priority
-  const high = tasks.filter(t => t.priority === 'high');
-  const medium = tasks.filter(t => t.priority === 'medium');
-  const low = tasks.filter(t => t.priority === 'low');
-  
   const sections = [];
   
-  if (high.length > 0) {
-    sections.push(`\n🔴 **HIGH PRIORITY** (${high.length})`);
-    high.slice(0, 5).forEach((task, i) => {
-      sections.push(`  ${i + 1}. ${task.title}${task.assignee ? ` [@${task.assignee}]` : ''} ${task.status === 'completed' ? '✓' : ''}`);
-    });
-  }
-  
-  if (medium.length > 0) {
-    sections.push(`\n🟡 **MEDIUM** (${medium.length})`);
-    medium.slice(0, 5).forEach((task, i) => {
-      sections.push(`  ${i + 1}. ${task.title}${task.assignee ? ` [@${task.assignee}]` : ''} ${task.status === 'completed' ? '✓' : ''}`);
-    });
-  }
-  
-  if (low.length > 0) {
-    sections.push(`\n🟢 **LOW** (${low.length})`);
-    low.slice(0, 3).forEach((task, i) => {
-      sections.push(`  ${i + 1}. ${task.title}${task.assignee ? ` [@${task.assignee}]` : ''} ${task.status === 'completed' ? '✓' : ''}`);
-    });
+  // Show owned tasks first (if any and not filtered out)
+  if (!context.showOnlyOwned || (context.showOnlyOwned && ownedTasks.length > 0)) {
+    const tasksToShow = context.showOnlyOwned ? ownedTasks : tasks;
+    
+    // Group by priority
+    const high = tasksToShow.filter(t => t.priority === 'high');
+    const medium = tasksToShow.filter(t => t.priority === 'medium');
+    const low = tasksToShow.filter(t => t.priority === 'low');
+    
+    if (high.length > 0) {
+      sections.push(`\n🔴 **HIGH PRIORITY** (${high.length})`);
+      high.slice(0, 5).forEach((task, i) => {
+        const assigneeTag = task.assignee ? ` [@${task.assignee}]` : '';
+        const ownerTag = task.owner && task.owner !== currentUser ? ` (by @${task.owner})` : '';
+        sections.push(`  ${i + 1}. ${task.title}${assigneeTag}${ownerTag}`);
+      });
+    }
+    
+    if (medium.length > 0) {
+      sections.push(`\n🟡 **MEDIUM** (${medium.length})`);
+      medium.slice(0, 5).forEach((task, i) => {
+        const assigneeTag = task.assignee ? ` [@${task.assignee}]` : '';
+        const ownerTag = task.owner && task.owner !== currentUser ? ` (by @${task.owner})` : '';
+        sections.push(`  ${i + 1}. ${task.title}${assigneeTag}${ownerTag}`);
+      });
+    }
+    
+    if (low.length > 0) {
+      sections.push(`\n🟢 **LOW** (${low.length})`);
+      low.slice(0, 3).forEach((task, i) => {
+        const assigneeTag = task.assignee ? ` [@${task.assignee}]` : '';
+        const ownerTag = task.owner && task.owner !== currentUser ? ` (by @${task.owner})` : '';
+        sections.push(`  ${i + 1}. ${task.title}${assigneeTag}${ownerTag}`);
+      });
+    }
   }
   
   message += sections.join('\n');
@@ -130,7 +162,8 @@ function formatTaskList(tasks, context = {}) {
     structured: {
       type: 'tasks_list',
       count: tasks.length,
-      byPriority: { high: high.length, medium: medium.length, low: low.length }
+      ownedCount: ownedTasks.length,
+      assignedCount: assignedToMe.length
     }
   };
 }

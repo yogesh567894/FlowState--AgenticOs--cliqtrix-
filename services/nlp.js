@@ -251,19 +251,34 @@ async function parseLongInput(userText, context = {}) {
   const systemPrompt = `You are a task management assistant. Parse user requests into structured intents.
 
 STRICT ACTION WHITELIST - ONLY return one of these actions:
-create_task, list_tasks, update_priority, complete_task, delete_task, create_note, list_notes, focus, show_urgent, math, small_talk, help, unknown
+create_task, list_tasks, update_task, update_priority, complete_task, delete_task, create_note, list_notes, focus, show_urgent, math, small_talk, help, unknown
 ${modeContext}
+
+IMPORTANT RULES:
+- "X is assigned to Y" OR "assign X to Y" → action="update_task" with entities.task_ref=X and entities.assignee=Y
+- "make X high priority" → action="update_priority" (NOT update_task)
+- "update/change/modify task X" → action="update_task" with relevant entities
+- Creating new tasks → action="create_task"
+- "list my tasks" → action="list_tasks" with entities.scope="my" (only owned tasks)
+- "list all tasks" OR "list tasks" → action="list_tasks" with entities.scope="all" (owned + assigned)
+- "delete all" OR "remove all" → action="delete_task" with entities.task_ref="all"
 
 Return ONLY valid JSON, no markdown, no code blocks, no explanations.
 Format:
 {
   "mode": "auto" | "tasks" | "notes" | "focus" | "chat",
-  "action": "create_task" | "list_tasks" | "update_priority" | "complete_task" | "delete_task" | "create_note" | "list_notes" | "focus" | "show_urgent" | "math" | "small_talk" | "help" | "unknown",
+  "action": "create_task" | "list_tasks" | "update_task" | "update_priority" | "complete_task" | "delete_task" | "create_note" | "list_notes" | "focus" | "show_urgent" | "math" | "small_talk" | "help" | "unknown",
   "entities": {
     "task_ref": "title text or number",
-    "person": "assignee",
+    "assignee": "person name",
     "priority": "high|medium|low",
-    "sortBy": "priority"
+    "sortBy": "priority",
+    "scope": "my" | "all",
+    "updates": {
+      "assignee": "new assignee",
+      "priority": "new priority",
+      "description": "new description"
+    }
   },
   "tasks": [{ "title": "...", "description": "...", "priority": "high|medium|low", "assignee": "name or null" }],
   "query": "original user message"
@@ -399,9 +414,10 @@ function mergeIntents(intents, primaryAction) {
   
   // Priority order for actions (most specific/actionable first)
   const actionPriority = {
-    'delete_task': 12,
-    'complete_task': 11,
-    'update_priority': 10,
+    'delete_task': 13,
+    'complete_task': 12,
+    'update_priority': 11,
+    'update_task': 10,
     'create_task': 9,
     'create_note': 8,
     'show_urgent': 7,
@@ -509,13 +525,18 @@ async function parseIntent(userText, context = {}) {
     const systemPrompt = `You are a task management assistant. Parse user requests into structured intents.
 
 STRICT ACTION WHITELIST - ONLY return one of these actions:
-create_task, list_tasks, update_priority, complete_task, delete_task, create_note, list_notes, focus, show_urgent, math, small_talk, help, unknown
+create_task, list_tasks, update_task, update_priority, complete_task, delete_task, create_note, list_notes, focus, show_urgent, math, small_talk, help, unknown
 
 RULES:
+- "X is assigned to Y" OR "assign X to Y" → action="update_task" with entities.task_ref=X and entities.assignee=Y
 - "make X urgent/high/low" OR "change priority" → action="update_priority" with entities.priority and entities.task_ref
 - "mark as done/complete X" → action="complete_task" with entities.task_ref
 - "delete/remove X" → action="delete_task" with entities.task_ref
+- "delete all" OR "remove all" → action="delete_task" with entities.task_ref="all"
 - "re arrange the list based on tasks priority" → action="list_tasks" with entities.sortBy="priority"
+- "list my tasks" → action="list_tasks" with entities.scope="my" (only owned tasks)
+- "list all tasks" OR "list tasks" → action="list_tasks" with entities.scope="all" (owned + assigned)
+- "update/change/modify task X" → action="update_task" with relevant entities.updates
 - "what time/day" or greetings → action="small_talk" with reply_hint
 - "add 5094 + 3776" → action="math" with entities.numbers and entities.operation
 - If ambiguous or unsupported → action="unknown"
@@ -525,17 +546,23 @@ Return ONLY valid JSON, no markdown, no code blocks, no explanations.
 Format:
 {
   "mode": "auto" | "tasks" | "notes" | "focus" | "chat",
-  "action": "create_task" | "list_tasks" | "update_priority" | "complete_task" | "delete_task" | "create_note" | "list_notes" | "focus" | "show_urgent" | "math" | "small_talk" | "help" | "unknown",
+  "action": "create_task" | "list_tasks" | "update_task" | "update_priority" | "complete_task" | "delete_task" | "create_note" | "list_notes" | "focus" | "show_urgent" | "math" | "small_talk" | "help" | "unknown",
   "entities": {
     "title": "task title text",
     "task_ref": "title text or number like 1,2,3 from last list",
-    "person": "assignee name",
+    "assignee": "person name",
     "project": "project name",
     "priority": "high" | "medium" | "low",
     "sortBy": "priority",
+    "scope": "my" | "all",
     "datetime": "time reference",
     "numbers": [5094, 3776],
-    "operation": "addition" | "subtraction" | "multiplication" | "division"
+    "operation": "addition" | "subtraction" | "multiplication" | "division",
+    "updates": {
+      "assignee": "new assignee name",
+      "priority": "new priority",
+      "description": "new description"
+    }
   },
   "tasks": [{ "title": "...", "description": "...", "priority": "high|medium|low", "assignee": "name or null" }],
   "notes": [{ "title": "...", "body": "...", "tags": [] }],
@@ -631,8 +658,13 @@ function regexFallbackParser(text) {
   
   if (/delete|remove/i.test(text)) {
     intent.action = 'delete_task';
-    const match = text.match(/delete|remove\s+(.+)/i);
-    if (match) intent.entities.task_ref = match[1].trim();
+    // Check for "delete all" or "remove all"
+    if (/delete\s+all|remove\s+all|delete\s+everything|remove\s+everything/i.test(text)) {
+      intent.entities.task_ref = 'all';
+    } else {
+      const match = text.match(/delete|remove\s+(.+)/i);
+      if (match) intent.entities.task_ref = match[1].trim();
+    }
     return intent;
   }
   
@@ -647,6 +679,12 @@ function regexFallbackParser(text) {
   
   if (/show|list|display.*tasks/i.test(text)) {
     intent.action = 'list_tasks';
+    // Check for "my tasks" vs "all tasks"
+    if (/\bmy\s+tasks?\b/i.test(text)) {
+      intent.entities.scope = 'my';
+    } else if (/\ball\s+tasks?\b/i.test(text)) {
+      intent.entities.scope = 'all';
+    }
     // Check for sorting
     if (/sort|arrange.*priority/i.test(text)) intent.entities.sortBy = 'priority';
     return intent;

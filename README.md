@@ -1,8 +1,35 @@
-# State OS
+# FlowState
 
-A minimalistic CLI-based backend system with **automatic token splitting** for handling large prompts using Groq's llama-3.3-70b-versatile model.
+**An Agentic OS for eliminating coordination tax.**
 
-## 🎯 Key Features
+🚧 *Prototype developed for Zoho Cliqtrix 2025*
+
+---
+
+## 🧠 The Vision
+
+Coordination is broken. We spend more time managing tasks than doing them. FlowState is an agentic OS designed to eliminate "coordination tax" by turning natural language into structured workflows automatically.
+
+While built for the Zoho ecosystem, the core architecture—handling ambiguity, managing token limits, and ensuring reliability—is scalable to any agentic workflow.
+
+---
+
+## 📺 Demo
+
+[Watch the Demo (60s)](https://www.youtube.com/watch?v=LOyjrcoowOQ)
+
+---
+
+## 🚧 Status & Roadmap
+
+- **Current:** MVP/Proof-of-Concept built in <24 hours. Handles basic intent parsing, token safety, and task creation.
+- **Next:** Implementing context retention across sessions, multi-agent handoffs, and vector-based semantic retrieval.
+- **Goal:** A fully autonomous "Level 3" agentic OS.
+
+---
+
+
+## ✨ Core Architecture
 
 ### Minimalistic CLI Interface
 - **Terminal-style UI**: Clean, distraction-free command interface
@@ -10,11 +37,23 @@ A minimalistic CLI-based backend system with **automatic token splitting** for h
 - **Real-time feedback**: Token counting and status updates
 - **Command history**: All interactions logged in terminal view
 
-### Token Safety Layer
+### Task Management & Collaboration
+- **Task assignment**: Assign tasks to team members
+- **Cross-user visibility**: See tasks assigned to you from other users
+- **Update tasks**: Modify assignees, priorities without creating duplicates
+- **Smart task resolution**: Reference tasks by title or number
+
+### Token Safety Layer (Critical Reliability Feature)
 - **Hard limits enforced**: Never exceeds 6000 input tokens per Groq call
 - **Automatic chunking**: Long inputs automatically split into N parts
 - **Intelligent merging**: Results from multiple calls seamlessly combined
 - **Fallback protection**: Graceful degradation when token limits are hit
+
+### Graceful Degradation
+- **Engineered fallback parsers**: Regex-based parsing when LLM reasoning fails
+- **Error recovery**: Automatic retry with adjusted parameters
+- **Queue management**: Handles excess tasks through batch processing
+- **Context preservation**: Maintains state across chunked operations
 
 ### Token Limits Configuration
 
@@ -90,7 +129,7 @@ npm test
 
 ### Command Format
 ```
-user@stateos:~$ create task: setup development environment
+user@flowstate:~$ create task: setup development environment
 ```
 
 ### Example Commands
@@ -322,7 +361,7 @@ Tests cover:
 ## 📁 Project Structure
 
 ```
-state-os/
+flowstate/
 ├── public/
 │   └── index.html             # Minimalistic CLI interface
 ├── services/
@@ -462,35 +501,60 @@ The system handles various error scenarios:
 
 ## 🎨 Design Philosophy
 
-State OS follows these principles:
+FlowState follows these principles:
 
 1. **Minimalism**: No unnecessary UI elements or decorations
 2. **Efficiency**: Keyboard-first workflow (Enter to send)
 3. **Clarity**: Clear, concise feedback in terminal format
 4. **Speed**: Instant visual feedback, no loading states
 5. **Accessibility**: High contrast, readable monospace fonts
+6. **Reliability**: Token safety and graceful degradation as first-class concerns
+
+---
 
 ## 🤝 Contributing
 
-1. Test token splitting with various input sizes
-2. Monitor Groq API responses for token errors
-3. Adjust MAX_INPUT_TOKENS_PER_CALL if needed
-4. Report issues with specific token counts
-5. Suggest UI/UX improvements for the CLI interface
+We welcome contributions focused on:
 
-## � Roadmap
+1. Testing token splitting with various input sizes
+2. Monitoring Groq API responses for token errors
+3. Suggesting reliability improvements
+4. UI/UX enhancements for the CLI interface
+5. Documentation and code examples
 
+---
+
+## 🛣️ Roadmap
+
+### Phase 1: Foundation (Current)
+- [x] Token safety layer with automatic chunking
+- [x] Minimalistic CLI interface
+- [x] Task assignment and cross-user visibility
+- [x] Graceful degradation with fallback parsers
+
+### Phase 2: Intelligence (Next)
+- [ ] Context retention across sessions
+- [ ] Multi-agent handoffs
+- [ ] Vector-based semantic retrieval
 - [ ] Command history (up/down arrow navigation)
+
+### Phase 3: Autonomy (Future)
 - [ ] Auto-complete for common commands
-- [ ] Custom themes (dark, light, matrix)
-- [ ] Export terminal session
-- [ ] Multi-user support with authentication
 - [ ] WebSocket for real-time updates
 - [ ] Voice input support
+- [ ] Custom themes (dark, light, matrix)
+- [ ] Multi-user support with authentication
+- [ ] Export terminal session
 
-## �📄 License
+---
+
+## 📄 License
 
 MIT
+
+---
+
+**Built with ❤️ for Zoho Cliqtrix 2025**
 
 ---
 
